@@ -52,31 +52,44 @@ class Uooc
     protected $maxLength = 0;
 
     /**
+     * 需要观看的视频列表
+     *
+     * @var array
+     */
+    protected $viedoList = [];
+
+    /**
      * Uooc constructor.
      *
-     * @param $cid
      * @param $cookie
      */
-    public function __construct($cid, $cookie)
+    public function __construct($cookie)
     {
-        $this->cid    = $cid;
         $this->cookie = $cookie;
     }
 
-
-    public function handle($courseName = '')
+    /**
+     * 获取某课程视频列表
+     *
+     * @param string $cid
+     * @param string $courseName
+     *
+     * @return bool
+     */
+    public function getCatalogSection($cid, $courseName)
     {
+        $this->cid        = $cid;
+        $courseName       = trim($courseName);
         $courseNameLength = mb_strlen($courseName);
         if (!$courseNameLength) {
             echo '请输入课程名称' . PHP_EOL;
-            exit;
+            return false;
         }
         $allUnit       = false;
         $chapterParent = null;
         $sectionList   = [];
         $catalogList   = $this->getCatalogList();
         //var_dump($catalogList);
-        //exit;
         // 遍历目录
         foreach ($catalogList as $catItem) {
             //var_dump($catItem['name']);
@@ -86,7 +99,9 @@ class Uooc
             // 遍历章节
             foreach ($catItem['children'] as $chapter) {
                 //var_dump($chapter['name']);
-                if (mb_substr($chapter['name'], -$courseNameLength) === $courseName) {
+                if (mb_substr(trim($chapter['name']),
+                        -$courseNameLength) === $courseName && $chapter['finished'] == 0
+                ) {
                     $allUnit       = true;
                     $chapterParent = $chapter;
                 }
@@ -95,7 +110,9 @@ class Uooc
                         //var_dump($sectionItem['name']);
                         if ($allUnit) {
                             $sectionList[] = $sectionItem;
-                        } elseif (mb_substr($sectionItem['name'], -$courseNameLength) === $courseName) {
+                        } elseif (mb_substr(trim($sectionItem['name']),
+                                -$courseNameLength) === $courseName && $sectionItem['finished'] == 0
+                        ) {
                             $sectionList[] = $sectionItem;
                             $chapterParent = $chapter;
                             // 不是拿全部章节，只拿章节里面的一个小章，退出所有遍历
@@ -111,17 +128,35 @@ class Uooc
         }
         if (is_null($chapterParent)) {
             echo '无匹配课程' . PHP_EOL;
-            exit;
+            return false;
         }
 
-        $videoList = $this->getSectionVideo($chapterParent, $sectionList);
+        $videoList       = $this->getSectionVideo($chapterParent, $sectionList);
+        $this->viedoList = array_merge($this->viedoList, $videoList);
+        return true;
+    }
 
+    /**
+     * 播放视频
+     *
+     * @return bool
+     */
+    public function handle()
+    {
+        $videoList = $this->viedoList;
+        if (empty($videoList)) {
+            echo '无视频列表' . PHP_EOL;
+            return false;
+        }
+        //var_dump(json_encode($videoList));
         $maxLength = $this->maxLength + 100;
-        for ($i = 0; $i <= $maxLength; $i += 10) {
+        for ($i = 1; $i <= $maxLength; $i += 9) {
+            $break = true;
             foreach ($videoList as $key => $item) {
                 if ($item['finished'] == 0) {
-                    $res = $this->markVideoLearn($item['chapter_id'], $item['section_id'], $item['subsection_id'],
-                        $item['resource_id'], $item['video_length'], $i);
+                    $break = false;
+                    $res   = $this->markVideoLearn($item['cid'], $item['chapter_id'], $item['section_id'],
+                        $item['subsection_id'], $item['resource_id'], $item['video_length'], $i);
                     if (isset($res['data']['finished'])) {
                         $videoList[$key]['finished'] = $res['data']['finished'];
                     }
@@ -129,7 +164,11 @@ class Uooc
                     echo json_encode($res) . PHP_EOL;
                 }
             }
+            if ($break) {
+                break;
+            }
             echo '==============' . PHP_EOL;
+            echo PHP_EOL;
             sleep(5);
         }
     }
@@ -161,13 +200,13 @@ class Uooc
                 'list' => $this->getUnitLearn($chapterParent['pid'], $chapterParent['id'], $sectionItem['id']),
             ];
         }
-        //var_dump($unitList);
 
         foreach ($unitList as $unitItem) {
             foreach ($unitItem['list'] as $item) {
                 if ($item['type'] == 10) {
                     if (isset($item['video_url']['cdn1']['source'])) {
                         $videoList[] = [
+                            'cid'           => $this->cid,
                             'title'         => $item['title'],
                             'chapter_id'    => $chapterParent['pid'],
                             'resource_id'   => $item['id'],
@@ -184,7 +223,6 @@ class Uooc
         //var_dump($videoList);
         if (empty($videoList)) {
             echo '课程无需观看视频' . PHP_EOL;
-            exit;
         }
         return $videoList;
     }
@@ -268,6 +306,7 @@ class Uooc
     /**
      * 更新课程进度
      *
+     * @param $cid
      * @param $chapterId
      * @param $sectionId
      * @param $subSectionId
@@ -278,11 +317,11 @@ class Uooc
      * @return bool
      * @throws Exception
      */
-    protected function markVideoLearn($chapterId, $sectionId, $subSectionId, $resourceId, $videoLength, $videoPos)
+    protected function markVideoLearn($cid, $chapterId, $sectionId, $subSectionId, $resourceId, $videoLength, $videoPos)
     {
         $post = [
             'chapter_id'    => $chapterId,
-            'cid'           => $this->cid,
+            'cid'           => $cid,
             'hidemsg_'      => true,
             'network'       => 1,
             'resource_id'   => $resourceId,
@@ -327,23 +366,35 @@ class Uooc
 
 $cookie = '';
 
+$uooc = new Uooc($cookie);
+
 // C语言课程ID
 $cid        = '1676802997';
-$courseName = '格式化输入scanf';
-$uooc       = new Uooc($cid, $cookie);
-$uooc->handle($courseName);
+$courseName = '循环结构程序设计举例';
+//$uooc->getCatalogSection($cid, $courseName);
 
 // 政治课程ID
 $cid        = '2031162833';
-$courseName = '新民主主义到社会主义的转变';
-$uooc       = new Uooc($cid, $cookie);
-$uooc->handle($courseName);
+$courseName = '社会主义建设道路探索的意义和经验教训';
+$uooc->getCatalogSection($cid, $courseName);
+
 
 // 英语课程ID
 $cid        = '856046843';
 $courseName = 'Vocabulary';
-$uooc       = new Uooc($cid, $cookie);
-$uooc->handle($courseName);
+$uooc->getCatalogSection($cid, $courseName);
+
+// 唐宋词与人生 课程ID
+$cid        = '1655354423';
+$courseName = '温庭筠词的香艳';
+$uooc->getCatalogSection($cid, $courseName);
+
+// 礼行天下 课程ID
+$cid        = '1210229148';
+$courseName = '礼仪的起源与演进';
+$uooc->getCatalogSection($cid, $courseName);
+
+$uooc->handle();
 
 
 echo round(memory_get_usage(true) / 1048576, 2) . ' MB' . PHP_EOL;
