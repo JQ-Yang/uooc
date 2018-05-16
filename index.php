@@ -38,6 +38,13 @@ class Uooc
     protected $markVideoLearnUrl = 'http://www.uooconline.com/home/learn/markVideoLearn';
 
     /**
+     * 试卷URL
+     *
+     * @var string
+     */
+    protected $getExamUrl = 'http://www.uooconline.com/exam/view';
+
+    /**
      * MP4文件每秒大小
      *
      * @var int
@@ -49,7 +56,7 @@ class Uooc
      *
      * @var int
      */
-    protected $maxLength = 0;
+    protected $maxLength = 2222;
 
     /**
      * 需要观看的视频列表
@@ -72,24 +79,25 @@ class Uooc
      * 获取某课程视频列表
      *
      * @param string $cid
-     * @param string $courseName
      *
      * @return bool
+     * @throws Exception
      */
-    public function getCatalogSection($cid, $courseName)
+    public function getCatalogSection($cid)
     {
-        $this->cid        = $cid;
-        $courseName       = trim($courseName);
+        $this->cid = $cid;
+        /*$courseName       = strtolower(trim($courseName));
         $courseNameLength = mb_strlen($courseName);
         if (!$courseNameLength) {
             echo '请输入课程名称' . PHP_EOL;
             return false;
-        }
+        }*/
         $allUnit       = false;
         $chapterParent = null;
         $sectionList   = [];
         $catalogList   = $this->getCatalogList();
         //var_dump($catalogList);
+        //exit;
         // 遍历目录
         foreach ($catalogList as $catItem) {
             //var_dump($catItem['name']);
@@ -99,9 +107,9 @@ class Uooc
             // 遍历章节
             foreach ($catItem['children'] as $chapter) {
                 //var_dump($chapter['name']);
-                if (mb_substr(trim($chapter['name']),
-                        -$courseNameLength) === $courseName && $chapter['finished'] == 0
-                ) {
+                if (/*strtolower(mb_substr(trim($chapter['name']),
+                        -$courseNameLength)) === $courseName && */
+                    $chapter['finished'] == 0) {
                     $allUnit       = true;
                     $chapterParent = $chapter;
                 }
@@ -110,9 +118,9 @@ class Uooc
                         //var_dump($sectionItem['name']);
                         if ($allUnit) {
                             $sectionList[] = $sectionItem;
-                        } elseif (mb_substr(trim($sectionItem['name']),
-                                -$courseNameLength) === $courseName && $sectionItem['finished'] == 0
-                        ) {
+                        } elseif (/*strtolower(mb_substr(trim($sectionItem['name']),
+                                -$courseNameLength)) === $courseName && */
+                            $sectionItem['finished'] == 0) {
                             $sectionList[] = $sectionItem;
                             $chapterParent = $chapter;
                             // 不是拿全部章节，只拿章节里面的一个小章，退出所有遍历
@@ -130,7 +138,9 @@ class Uooc
             echo '无匹配课程' . PHP_EOL;
             return false;
         }
-
+        //var_dump($chapterParent);
+        //var_dump($sectionList);
+        //exit;
         $videoList       = $this->getSectionVideo($chapterParent, $sectionList);
         $this->viedoList = array_merge($this->viedoList, $videoList);
         return true;
@@ -140,6 +150,7 @@ class Uooc
      * 播放视频
      *
      * @return bool
+     * @throws Exception
      */
     public function handle()
     {
@@ -180,6 +191,7 @@ class Uooc
      * @param array $sectionList   课程列表
      *
      * @return array
+     * @throws Exception
      */
     protected function getSectionVideo($chapterParent, $sectionList)
     {
@@ -200,9 +212,14 @@ class Uooc
                 'list' => $this->getUnitLearn($chapterParent['pid'], $chapterParent['id'], $sectionItem['id']),
             ];
         }
-
+        //var_dump($unitList);
+        //exit;
         foreach ($unitList as $unitItem) {
+            if (empty($unitItem['list'])) {
+                continue;
+            }
             foreach ($unitItem['list'] as $item) {
+                //var_dump($item['type']);
                 if ($item['type'] == 10) {
                     if (isset($item['video_url']['cdn1']['source'])) {
                         $videoList[] = [
@@ -362,39 +379,150 @@ class Uooc
         }
         return $res;
     }
+
+    /**
+     * 获取已学完的试卷列表
+     *
+     * @param int $cid
+     *
+     * @return array
+     * @throws Exception
+     */
+    public function getAllPaper($cid)
+    {
+        $this->cid   = $cid;
+        $catalogList = $this->getCatalogList();
+        //echo json_encode($catalogList);
+        //exit;
+        $validcatalogList = [];
+        // 遍历目录
+        foreach ($catalogList as $level1) {
+            if (empty($level1['children'])) {
+                continue;
+            }
+            // 遍历章节
+            foreach ($level1['children'] as $level2) {
+                $child = [];
+                if ($level2['finished'] == 0) {
+                    continue;
+                }
+                if (!empty($level2['children'])) {
+                    foreach ($level2['children'] as $level3) {
+                        if ($level3['finished'] == 0) {
+                            continue;
+                        }
+                        $child[] = $level3;
+                    }
+                }
+                unset($level1['children'], $level2['children']);
+                $validcatalogList[] = [
+                    'level1' => $level1,
+                    'level2' => $level2,
+                    'level3' => [],
+                ];
+                if (!empty($child)) {
+                    $validcatalogList[] = [
+                        'level1' => $level1,
+                        'level2' => $level2,
+                        'level3' => $child,
+                    ];
+                }
+            }
+        }
+        //echo json_encode($validcatalogList);
+        //exit;
+        $unitList = [];
+        foreach ($validcatalogList as $item) {
+            if (empty($item['level3'])) {
+                $unitList[] = [
+                    'info' => $item['level2'],
+                    'list' => $this->getUnitLearn($item['level2']['pid'], $item['level2']['id']),
+                ];
+            } else {
+                foreach ($item['level3'] as $level3Child) {
+                    $unitList[] = [
+                        'info' => $level3Child,
+                        'list' => $this->getUnitLearn($item['level2']['pid'], $item['level2']['id'],
+                            $level3Child['id']),
+                    ];
+                }
+            }
+        }
+        //echo json_encode($unitList);
+        //exit;
+        $examList = [];
+        foreach ($unitList as $unitItem) {
+            if (empty($unitItem['list'])) {
+                continue;
+            }
+            foreach ($unitItem['list'] as $item) {
+                if ($item['type'] == 80) {
+                    $examList[] = $item;
+                }
+            }
+        }
+        return $this->sortOutPaper($examList);
+    }
+
+
+    protected function sortOutPaper($examList = [])
+    {
+        foreach ($examList as $key => $exam) {
+            $name = $exam['title'];
+            $url  = $this->getExamUrl . '?' . http_build_query([
+                    'cid' => $exam['course_id'],
+                    'tid' => $exam['task_id'],
+                ]);
+            $ch   = curl_init();
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_COOKIE, $this->cookie);
+            curl_setopt($ch, CURLOPT_URL, $url);
+            $res = curl_exec($ch);
+            if (!$res) {
+                throw new \Exception('获取试卷失败');
+            }
+            $res = json_decode($res, true);
+            if (!isset($res['data']['questions'])) {
+                throw new \Exception('获取试卷题目失败');
+            }
+            $questions = $res['data']['questions'];
+            // 分析题目
+
+            $str = "";
+            foreach ($questions as $question) {
+                $str .= "题目：" . strip_tags($question['question']) . "\r\n";
+
+                $answer = '';
+                switch ($question['type']) {
+                    case 30:
+                        $answer .= strip_tags(implode("\r\n", $question['answer']));
+                        break;
+                    default:
+                        foreach ($question['answer'] as $answerKey) {
+                            $answer .= strip_tags($question['options'][$answerKey]) . "\r\n";
+                        }
+                };
+                $str .= "答案：{$answer}\r\n";
+                $str .= "----------------------------------------------------------\r\n\r\n";
+            }
+            $name = ($key + 1) . '. ' . $name;
+            $str  = str_replace('&nbsp;', '', $str);
+            file_put_contents("./{$name}.txt", $str);
+        }
+    }
 }
 
 $cookie = '';
 
 $uooc = new Uooc($cookie);
-
-// C语言课程ID
-$cid        = '1676802997';
-$courseName = '循环结构程序设计举例';
-//$uooc->getCatalogSection($cid, $courseName);
-
-// 政治课程ID
-$cid        = '2031162833';
-$courseName = '社会主义建设道路探索的意义和经验教训';
-$uooc->getCatalogSection($cid, $courseName);
-
-
 // 英语课程ID
-$cid        = '856046843';
-$courseName = 'Vocabulary';
-$uooc->getCatalogSection($cid, $courseName);
-
-// 唐宋词与人生 课程ID
-$cid        = '1655354423';
-$courseName = '温庭筠词的香艳';
-$uooc->getCatalogSection($cid, $courseName);
-
-// 礼行天下 课程ID
-$cid        = '1210229148';
-$courseName = '礼仪的起源与演进';
-$uooc->getCatalogSection($cid, $courseName);
-
-$uooc->handle();
+$cid = '856046843';
+// C语言课程ID
+$cid = '1676802997';
+// 政治课程ID
+$cid = '2031162833';
+$uooc->getAllPaper($cid);
+//$uooc->handle();
 
 
-echo round(memory_get_usage(true) / 1048576, 2) . ' MB' . PHP_EOL;
+//echo round(memory_get_usage(true) / 1048576, 2) . ' MB' . PHP_EOL;
