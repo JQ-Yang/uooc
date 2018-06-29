@@ -467,6 +467,7 @@ class Uooc
 
     protected function sortOutPaper($examList = [])
     {
+        $str = "";
         foreach ($examList as $key => $exam) {
             $name = $exam['title'];
             $url  = $this->getExamUrl . '?' . http_build_query([
@@ -488,7 +489,10 @@ class Uooc
             $questions = $res['data']['questions'];
             // 分析题目
 
-            $str = "";
+            $name = ($key + 1) . '. ' . $name;
+            $str  .= "========================\r\n========================\r\n";
+            $str  .= "试卷题目：{$name}\r\n";
+
             foreach ($questions as $question) {
                 $str .= "题目：" . strip_tags($question['question']) . "\r\n";
 
@@ -505,24 +509,30 @@ class Uooc
                 $str .= "答案：{$answer}\r\n";
                 $str .= "----------------------------------------------------------\r\n\r\n";
             }
-            $name = ($key + 1) . '. ' . $name;
-            $str  = str_replace('&nbsp;', '', $str);
-            file_put_contents("./{$name}.txt", $str);
         }
+        $str = str_replace('&nbsp;', '', $str);
+        file_put_contents($this->cid . ".txt", $str);
     }
 }
 
 $cookie = '';
 
-$uooc = new Uooc($cookie);
+$i = 0;
+while ($i <= 0) {
+    $uooc = new Uooc($cookie);
 // 英语课程ID
-$cid = '856046843';
+    $cid = '856046843';
 // C语言课程ID
-$cid = '1676802997';
+//$cid = '1676802997';
 // 政治课程ID
-$cid = '2031162833';
+//$cid = '2031162833';
 $uooc->getAllPaper($cid);
-//$uooc->handle();
+    //$uooc->getCatalogSection($cid);
+    //$uooc->handle();
+    $i++;
+    sleep(10);
+}
+
 
 
 //echo round(memory_get_usage(true) / 1048576, 2) . ' MB' . PHP_EOL;
